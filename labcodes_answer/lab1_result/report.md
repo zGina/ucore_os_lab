@@ -4,6 +4,87 @@
 
 [练习1.1] 操作系统镜像文件 ucore.img 是如何一步一步生成的?(需要比较详细地解释 Makefile 中
 每一条相关命令和命令参数的含义,以及说明命令导致的结果)
+### makefile
+* makefile rules
+  ```
+  <target> : <prerequisites>
+  [tab] <command>
+	```
+
+    * target:obj/exe/label
+    * prerequisites: request files and/or target?
+    * command: any shell command
+	eg:
+    ```
+	main.o : main.c defs.h
+    cc -c main.c
+	```
+  * core rule : ```if``` any prerequisites file ```newer``` than target,```then``` command executed. 
+* how does makefile works?
+  * find ```makefile``` 
+  * find the ```first```  ```target``` 
+  * if not ```first tar``` or ```prerequisites newer than tar```:execute;
+    * if not ```.o```(the prerequisites):find the prerequisites of ```.o```:execute 
+    * ```.c``` and ```.h``` must exist
+  * command not in the same line has no relation,so add '\' in the tail
+* makefile variable
+  * for easy and secure
+  * just like ```#define``` in C
+  * Eg. ```objects = main.o command.o display.o balabala```
+    * use ```$(objects)``` to express 
+  * remember that make will escape ```$```,so
+  ```
+   test:
+   @echo $$HOME 
+   ```
+* make auto derivation
+  * if make find ```xxx.o```,then it adds ```xxx.c``` to its prerequis,adds ```cc -c xxx.c``` to command. 
+* makefile grammar
+  * echo 
+    * make will print every command then exe it.
+    * add ```@``` to close it. usuallly used in pure echo or #comment
+  * wildcard
+    * ```～``` 
+      * ~/study or ~anig/study 
+      * in windows,not /home -> find variable ```$home```
+    * ```*```
+      * match all chars
+      * ```\*``` match real ```*```
+  * pattern match
+    ```%.o :%.c``` 
+     
+	```
+    f1.o : f1.c
+	f2.o : f2.c
+    ```
+  *	 variable assignment
+     *  ont var points to another ```v1 = $(v2)```
+     *  VARIBLE = value #expand while executed,allowed to recurse
+     *  VARIBLE := value #expand while defined
+     *  VARIBLE ?= value #only while VAR is empty
+     *  VARIBLE += value #add to the tail
+     *  Automatic Variables 
+         1. ```$@``` refers target now
+         2. ```$<``` refers the first prerequisites
+         3. ```$?``` refers to all prerequisites newer than target
+         4. ```$^``` refers to all prerequisites
+         5. ```$*``` refers to the part of % match
+         6. ```$(@D)``` , ```$(@F)``` refers to $@'s dirname , filename
+         7. ```$(<D)``` and ```$(<F)``` refers to $<'s dirname and filename
+            * reference :
+        [Automatic Vars](https://www.gnu.org/software/make/manual/html_node/Automatic-Variables.html)
+    * judge and loop
+      * bash grammar
+    * function
+      1. shell  ```src := $(shell echo src/{00..99}.txt ) ```  to exec shell command
+      2. wildcard ```src := $(wildcard src/*.txt) ``` to replace the wildcard in bash
+      3. subst  ```$(subst from,to,text)``` to replace txt
+      4. patsubst ```$(patsubst %.c,%.o,x.c.c bar.c)``` replace from ```x.c.c bar.c``` to ```x.c.o bar.o```
+      5. replace suffix name```min : $(output:.js=.min.js) ```
+      6. To understand ```eval()``` in [new.mk]
+         * recursion
+         * reference : [eval()](http://bbs.chinaunix.net/thread-2321462-3-1.html)
+   * add ```-``` at the start to omit
 
 ```
 bin/ucore.img
