@@ -387,6 +387,14 @@ si
 ## [练习3]
 分析bootloader 进入保护模式的过程。
 
+### 分段存储机制
+* From Locgical Adds to Physical Adds
+1.
+#### logical address
+#### descriptor
+#### descriptor table
+#### seg selector
+
 从`%cs=0 $pc=0x7c00`，进入后
 
 首先清理环境：包括将flag置0和将段寄存器置0
@@ -399,26 +407,52 @@ si
 	    movw %ax, %es
 	    movw %ax, %ss
 ```
+#### Flag Instruction
+* cli (Clear Interrupt Flag)
+  * operation : 0->IF
+  * clear the if if the cur privilege level is at least  as privileged as **IOPL**
+    * IOPL? change I/O privilege level
+* cld (Clear Direction Flag)
+  * 0->DF
+  * it means that string is processed beginning from lowest to highest address
+  * auto-incrementing
 
 开启A20：通过将键盘控制器上的A20线置于高电位，全部32条地址线可用，
 可以访问4G的内存空间。
 ```
 	seta20.1:               # 等待8042键盘控制器不忙
 	    inb $0x64, %al      # 
-	    testb $0x2, %al     #
+	    testb $0x2, %al     # if 
 	    jnz seta20.1        #
 	
 	    movb $0xd1, %al     # 发送写8042输出端口的指令
 	    outb %al, $0x64     #
 	
-	seta20.1:               # 等待8042键盘控制器不忙
+	seta20.2:               # 等待8042键盘控制器不忙
 	    inb $0x64, %al      # 
 	    testb $0x2, %al     #
-	    jnz seta20.1        #
+	    jnz seta20.2        #
 	
 	    movb $0xdf, %al     # 打开A20
 	    outb %al, $0x60     # 
 ```
+* in(b)
+  * input (byte)/word/dword from port al into 0x64
+* 8042 Status Register (port 64h read)
+  >Port 0x64 (Command Port) is used for sending commands to keyboard controller (PS/2).
+Port 0x60 (Data Port) is used for sending data to/from PS/2(Keyboard) controller or the PS/2 device itself.
+
+![](imgs/port64.png)
+	```
+	testb $0x2, %al   if the low 2th bit is 1;
+	jnz seta20.1      jump
+	```
+
+* eax ax al ah
+  * EAX is the full 32-bit value
+  * AX is the lower 16-bits
+  * AL is the lower 8 bits
+  * AH is the bits 8 through 15 (zero-based)
 
 初始化GDT表：一个简单的GDT表和其描述符已经静态储存在引导区中，载入即可
 ```
@@ -431,7 +465,9 @@ si
 	    orl $CR0_PE_ON, %eax
 	    movl %eax, %cr0
 ```
-
+* cr0 ( control register )
+ ![](imgs/cr.png)
+ 
 通过长跳转更新cs的基地址
 ```
 	 ljmp $PROT_MODE_CSEG, $protcseg
@@ -441,14 +477,15 @@ si
 
 设置段寄存器，并建立堆栈
 ```
-	    movw $PROT_MODE_DSEG, %ax
-	    movw %ax, %ds
-	    movw %ax, %es
-	    movw %ax, %fs
-	    movw %ax, %gs
-	    movw %ax, %ss
-	    movl $0x0, %ebp
-	    movl $start, %esp
+
+	    movw $PROT_MODE_DSEG, %ax   accumulator
+	    movw %ax, %ds  data
+	    movw %ax, %es   extra
+	    movw %ax, %fs	flag 
+	    movw %ax, %gs	global
+	    movw %ax, %ss	stack
+	    movl $0x0, %ebp  0x7c00  base
+	    movl $start, %esp   stack
 ```
 转到保护模式完成，进入boot主方法
 ```
@@ -459,6 +496,63 @@ si
 ## [练习4]
 分析bootloader加载ELF格式的OS的过程。
 
+* BIOS reads the first sector of the disk and writes it to asdds 0x7C00.But how it accesses the disk?
+  * To solve this problem, the ISA uses a
+specified block of memory, addresses 0x1F0-0x1F7,
+	
+	```
+	Control Register:
+	Address 0x3F6 = 0x80 (0000 1RE0): R=reset, E=0 means "enable interrupt"
+	Command Block Registers:
+	Address 0x1F0 = Data Port
+	Address 0x1F1 = Error
+	Address 0x1F2 = Sector Count
+	Address 0x1F3 = LBA low byte
+	Address 0x1F4 = LBA mid byte
+	Address 0x1F5 = LBA high byte
+	Address 0x1F6 = 1B1D TOP4LBA: B=LBA, D=drive
+	Address 0x1F7 = Command/status
+
+	Status Register (Address 0x1F7):
+	7     6 	 5 	  4    3 	2 	 1 	   0
+	BUSY READY FAULT SEEK DRQ CORR IDDEX ERROR
+
+	Error Register (Address 0x1F1): (check when Status ERROR==1)
+	7	6	5	4	 3	  2	  1	   0
+	BBK UNC MC IDNF MCR ABRT T0NF AMNF
+
+	BBK = Bad Block
+	UNC = Uncorrectable data error
+	MC = Media Changed
+	IDNF = ID mark Not Found
+	MCRMedia = Change Requested
+	ABRT = Command aborted
+	T0NF = Track 0 Not Found
+	AMNF = Address Mark Not Found
+
+	• Wait for drive to be ready. Read Status Register (0x1F7) until drive is not busy and READY.
+	• Write parameters to command registers. Write the sector count,logical block address (LBA) of the sectors to be accessed, and drive number (master=0x00 or slave=0x10, as IDE permits just two drives)to command registers (0x1F2-0x1F6).
+	• Start the I/O. by issuing read/write to command register. Write READ—WRITE command to command register (0x1F7).
+	• Data transfer (for writes): Wait until drive status is READY and DRQ (drive request for data); write data to data port.
+	• Handle interrupts. In the simplest case, handle an interrupt for each sector transferred; more complex approaches allow batching and thus one final interrupt when the entire transfer is complete.
+	• Error handling. After each operation, read the status register. If the ERROR bit is on, read the error register for details.
+	```
+
+* waitdisk();
+  ```
+	static void
+	waitdisk(void) {
+    	while ((inb(0x1F7) & 0xC0) != 0x40)
+        /* do nothing */;
+}
+     inb(0x1F7)
+		  &
+	  1100 0000
+	      !=
+	  0100 0000
+
+----> while inb(0x1F7) == 01xx xxxx -> break 
+  ```
 首先看readsect函数，
 `readsect`从设备的第secno扇区读取数据到dst位置
 ```
@@ -466,22 +560,24 @@ si
 	readsect(void *dst, uint32_t secno) {
 	    waitdisk();
 	
-	    outb(0x1F2, 1);                         // 设置读取扇区的数目为1
+	    outb(0x1F2, 1);           // 设置读取扇区的数目为1
 	    outb(0x1F3, secno & 0xFF);
 	    outb(0x1F4, (secno >> 8) & 0xFF);
 	    outb(0x1F5, (secno >> 16) & 0xFF);
 	    outb(0x1F6, ((secno >> 24) & 0xF) | 0xE0);
+		                            & 0000 1111 | 1110 0000
+									// 0xE0 = 1110 0000代表LBA寻址, 并且使用master
 	        // 上面四条指令联合制定了扇区号
 	        // 在这4个字节线联合构成的32位参数中
 	        //   29-31位强制设为1
 	        //   28位(=0)表示访问"Disk 0"
 	        //   0-27位是28位的偏移量
-	    outb(0x1F7, 0x20);                      // 0x20命令，读取扇区
-	
+	    outb(0x1F7, 0x20);   // sata 0x20命令，读取扇区
 	    waitdisk();
-
-	    insl(0x1F0, dst, SECTSIZE / 4);         // 读取到dst位置，
-	                                            // 幻数4因为这里以DW为单位
+	    insl(0x1F0, dst, SECTSIZE / 4); // 读取到dst位置，
+	                                // 幻数4因为这里以DW为单位
+							// get results as 128 "long words"
+							// 1 long word == 4 bytes; 
 	}
 ```
 
