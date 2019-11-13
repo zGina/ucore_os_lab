@@ -1,0 +1,3 @@
+- 为什么 BIOS 第一条指令位于 0xFFFFFFF0(内存空间的顶部)?
+  - 连续内存 for programming better—> top or bottom
+  - 1980s，中断向量位于内存(RAM for 灵活性)底部，因为科学家不知道 RAM 会有多大—>ROM 从上界开始向下工作
