@@ -16,6 +16,7 @@
   - target:obj/exe/label
   - prerequisites: request files and/or target?
   - command: any shell command
+
 ```makefile
 main.o : main.c defs.h
 	cc -c main.c
